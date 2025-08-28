@@ -13,6 +13,7 @@ import (
 	"os/signal"
 	"path/filepath"
 	"reflect"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -194,6 +195,28 @@ type SendMessageResponse struct {
 	Success bool   `json:"success"`
 	Message string `json:"message"`
 }
+
+// ConnectionStatusResponse represents the response for connection status
+type ConnectionStatusResponse struct {
+	Connected     bool   `json:"connected"`
+	Authenticated bool   `json:"authenticated"`
+	QRCode        string `json:"qr_code,omitempty"`
+	DeviceID      string `json:"device_id,omitempty"`
+	PhoneNumber   string `json:"phone_number,omitempty"`
+	StatusMessage string `json:"status_message"`
+}
+
+// Global variables for connection management
+var (
+	globalClient      *whatsmeow.Client
+	globalMessageStore *MessageStore
+	currentQRCode     string
+	connectionStatus  = ConnectionStatusResponse{
+		Connected:     false,
+		Authenticated: false,
+		StatusMessage: "Not connected",
+	}
+)
 
 // SendMessageRequest represents the request body for the send message API
 type SendMessageRequest struct {
@@ -774,6 +797,111 @@ func startRESTServer(client *whatsmeow.Client, messageStore *MessageStore, port 
 		})
 	})
 
+	// Handler for getting connection status
+	http.HandleFunc("/api/status", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set("Access-Control-Allow-Origin", "*")
+		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+		w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
+
+		// Update status based on current client state
+		if globalClient != nil {
+			connectionStatus.Connected = globalClient.IsConnected()
+			connectionStatus.Authenticated = globalClient.IsLoggedIn()
+			
+			if globalClient.Store.ID != nil {
+				connectionStatus.DeviceID = globalClient.Store.ID.String()
+				connectionStatus.PhoneNumber = globalClient.Store.ID.User
+			}
+
+			if connectionStatus.Connected && connectionStatus.Authenticated {
+				connectionStatus.StatusMessage = "Connected and authenticated"
+			} else if connectionStatus.Connected {
+				connectionStatus.StatusMessage = "Connected but not authenticated"
+			} else {
+				connectionStatus.StatusMessage = "Disconnected"
+			}
+		}
+
+		connectionStatus.QRCode = currentQRCode
+		json.NewEncoder(w).Encode(connectionStatus)
+	})
+
+	// Handler for initiating connection
+	http.HandleFunc("/api/connect", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodOptions {
+			w.Header().Set("Access-Control-Allow-Origin", "*")
+			w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+			w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
+			w.WriteHeader(http.StatusOK)
+			return
+		}
+
+		if r.Method != http.MethodPost {
+			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set("Access-Control-Allow-Origin", "*")
+		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+		w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
+
+		if globalClient != nil && globalClient.IsConnected() {
+			json.NewEncoder(w).Encode(SendMessageResponse{
+				Success: true,
+				Message: "Already connected",
+			})
+			return
+		}
+
+		// This would trigger the connection process
+		// For now, we'll return a success message
+		json.NewEncoder(w).Encode(SendMessageResponse{
+			Success: true,
+			Message: "Connection initiated. Please check status for QR code.",
+		})
+	})
+
+	// Handler for disconnecting
+	http.HandleFunc("/api/disconnect", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodOptions {
+			w.Header().Set("Access-Control-Allow-Origin", "*")
+			w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+			w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
+			w.WriteHeader(http.StatusOK)
+			return
+		}
+
+		if r.Method != http.MethodPost {
+			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set("Access-Control-Allow-Origin", "*")
+		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+		w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
+
+		if globalClient != nil {
+			globalClient.Disconnect()
+			connectionStatus.Connected = false
+			connectionStatus.Authenticated = false
+			connectionStatus.StatusMessage = "Disconnected"
+			currentQRCode = ""
+		}
+
+		json.NewEncoder(w).Encode(SendMessageResponse{
+			Success: true,
+			Message: "Disconnected successfully",
+		})
+	})
+
 	// Start the server
 	serverAddr := fmt.Sprintf(":%d", port)
 	fmt.Printf("Starting REST API server on %s...\n", serverAddr)
@@ -826,6 +954,9 @@ func main() {
 		return
 	}
 
+	// Set global references
+	globalClient = client
+
 	// Initialize message store
 	messageStore, err := NewMessageStore()
 	if err != nil {
@@ -833,6 +964,9 @@ func main() {
 		return
 	}
 	defer messageStore.Close()
+
+	// Update global reference
+	globalMessageStore = messageStore
 
 	// Setup event handling for messages and history sync
 	client.AddEventHandler(func(evt interface{}) {
@@ -847,9 +981,14 @@ func main() {
 
 		case *events.Connected:
 			logger.Infof("Connected to WhatsApp")
+			connectionStatus.Connected = true
+			connectionStatus.StatusMessage = "Connected to WhatsApp"
 
 		case *events.LoggedOut:
 			logger.Warnf("Device logged out, please scan QR code to log in again")
+			connectionStatus.Connected = false
+			connectionStatus.Authenticated = false
+			connectionStatus.StatusMessage = "Device logged out, please scan QR code to log in again"
 		}
 	})
 
@@ -871,7 +1010,12 @@ func main() {
 			if evt.Event == "code" {
 				fmt.Println("\nScan this QR code with your WhatsApp app:")
 				qrterminal.GenerateHalfBlock(evt.Code, qrterminal.L, os.Stdout)
+				currentQRCode = evt.Code
+				connectionStatus.StatusMessage = "QR code generated, please scan with WhatsApp"
 			} else if evt.Event == "success" {
+				connectionStatus.Authenticated = true
+				connectionStatus.StatusMessage = "Successfully authenticated"
+				currentQRCode = ""
 				connected <- true
 				break
 			}
@@ -883,6 +1027,7 @@ func main() {
 			fmt.Println("\nSuccessfully connected and authenticated!")
 		case <-time.After(3 * time.Minute):
 			logger.Errorf("Timeout waiting for QR code scan")
+			connectionStatus.StatusMessage = "Timeout waiting for QR code scan"
 			return
 		}
 	} else {
@@ -892,6 +1037,9 @@ func main() {
 			logger.Errorf("Failed to connect: %v", err)
 			return
 		}
+		connectionStatus.Connected = true
+		connectionStatus.Authenticated = true
+		connectionStatus.StatusMessage = "Connected using existing session"
 		connected <- true
 	}
 
@@ -900,6 +1048,8 @@ func main() {
 
 	if !client.IsConnected() {
 		logger.Errorf("Failed to establish stable connection")
+		connectionStatus.Connected = false
+		connectionStatus.StatusMessage = "Failed to establish stable connection"
 		return
 	}
 

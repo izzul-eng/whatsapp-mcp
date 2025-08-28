@@ -123,7 +123,12 @@ export const getMessageContext = async (messageId: string, before = 5, after = 5
 // WhatsApp Connection API calls
 export const getConnectionStatus = async (): Promise<ConnectionStatus> => {
   try {
-    const response = await fetch(`${API_BASE}/status`);
+    const response = await fetch(`${API_BASE}/status`, {
+      method: 'GET',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+    });
     if (response.ok) {
       return await response.json();
     }
@@ -131,7 +136,7 @@ export const getConnectionStatus = async (): Promise<ConnectionStatus> => {
     console.error('Failed to get connection status:', error);
   }
   
-  // Mock response for demo
+  // Fallback response
   return {
     connected: false,
     authenticated: false,
