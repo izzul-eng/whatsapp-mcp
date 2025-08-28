@@ -5,11 +5,12 @@ import ChatList from './components/ChatList';
 import MessageList from './components/MessageList';
 import ContactList from './components/ContactList';
 import SendMessage from './components/SendMessage';
+import WhatsAppConnection from './components/WhatsAppConnection';
 import { Chat, Message, Contact } from './types';
 import { fetchChats, fetchMessages, fetchContacts, searchMessages } from './api';
 
 function App() {
-  const [activeTab, setActiveTab] = useState<'chats' | 'messages' | 'contacts' | 'send'>('chats');
+  const [activeTab, setActiveTab] = useState<'connection' | 'chats' | 'messages' | 'contacts' | 'send'>('connection');
   const [chats, setChats] = useState<Chat[]>([]);
   const [messages, setMessages] = useState<Message[]>([]);
   const [contacts, setContacts] = useState<Contact[]>([]);
@@ -123,6 +124,18 @@ function App() {
           <div className="w-64 bg-white rounded-lg shadow-sm border">
             <nav className="p-4 space-y-2">
               <button
+                onClick={() => setActiveTab('connection')}
+                className={`w-full flex items-center space-x-3 px-3 py-2 rounded-lg text-left transition-colors ${
+                  activeTab === 'connection' 
+                    ? 'bg-whatsapp-100 text-whatsapp-700' 
+                    : 'text-gray-600 hover:bg-gray-100'
+                }`}
+              >
+                <Phone className="w-5 h-5" />
+                <span>Connection</span>
+              </button>
+              
+              <button
                 onClick={() => setActiveTab('chats')}
                 className={`w-full flex items-center space-x-3 px-3 py-2 rounded-lg text-left transition-colors ${
                   activeTab === 'chats' 
@@ -174,6 +187,10 @@ function App() {
 
           {/* Main Content */}
           <div className="flex-1 bg-white rounded-lg shadow-sm border">
+            {activeTab === 'connection' && (
+              <WhatsAppConnection />
+            )}
+            
             {activeTab === 'chats' && (
               <ChatList 
                 chats={chats} 

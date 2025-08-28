@@ -36,3 +36,12 @@ export interface ApiResponse<T> {
   message: string;
   data?: T;
 }
+
+export interface ConnectionStatus {
+  connected: boolean;
+  authenticated: boolean;
+  qr_code?: string;
+  device_id?: string;
+  phone_number?: string;
+  status_message: string;
+}

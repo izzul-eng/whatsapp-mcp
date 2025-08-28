@@ -119,3 +119,58 @@ export const getMessageContext = async (messageId: string, before = 5, after = 5
     after: await fetchMessages({ limit: after })
   };
 };
+
+// WhatsApp Connection API calls
+export const getConnectionStatus = async (): Promise<ConnectionStatus> => {
+  try {
+    const response = await fetch(`${API_BASE}/status`);
+    if (response.ok) {
+      return await response.json();
+    }
+  } catch (error) {
+    console.error('Failed to get connection status:', error);
+  }
+  
+  // Mock response for demo
+  return {
+    connected: false,
+    authenticated: false,
+    status_message: "Not connected to WhatsApp"
+  };
+};
+
+export const initiateConnection = async (): Promise<ApiResponse<any>> => {
+  try {
+    const response = await fetch(`${API_BASE}/connect`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+    });
+    
+    return await response.json();
+  } catch (error) {
+    return {
+      success: false,
+      message: 'Failed to initiate connection'
+    };
+  }
+};
+
+export const disconnectWhatsApp = async (): Promise<ApiResponse<any>> => {
+  try {
+    const response = await fetch(`${API_BASE}/disconnect`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+    });
+    
+    return await response.json();
+  } catch (error) {
+    return {
+      success: false,
+      message: 'Failed to disconnect'
+    };
+  }
+};
